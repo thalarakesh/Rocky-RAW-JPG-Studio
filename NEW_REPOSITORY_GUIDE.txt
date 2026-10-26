@@ -1,0 +1,7 @@
+1. Create a new repository named Rocky-RAW-JPG-Studio at https://github.com/new
+2. Create README.md first to establish main branch, or initialize repository with README.
+3. Upload all extracted files, preserving .github/workflows/build-windows-exe.yml. Do not upload the ZIP itself.
+4. Open Actions > Build Rocky RAW JPG Studio Desktop EXE > Run workflow.
+5. Download artifact Rocky-RAW-JPG-Studio-Desktop-Windows.
+6. Test RAW thumbnails and JPG copying with sample photos.
+NOTE: This project is source, not a precompiled Windows EXE. rawpy requires a compatible binary wheel.
