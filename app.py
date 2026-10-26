@@ -148,37 +148,55 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:self.send_data({'error':str(e)},status=400)
 
 def thumbnail(index):
-    """JPEG sidecar or client JPEG by stem; optional rawpy for true RAW embedded previews."""
+    """Decode a local image thumbnail; log failures instead of silently hiding them."""
+    import logging
+    from PIL import Image, ImageOps
+    with lock:
+        if index < 0 or index >= len(state['raw']):
+            return None
+        f = dict(state['raw'][index])
+        client = list(state['jpeg'])
+    source = Path(f['path'])
+    def jpeg_bytes(image):
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((350, 260))
+        out = io.BytesIO()
+        image.convert('RGB').save(out, format='JPEG', quality=82)
+        return out.getvalue()
     try:
-        with lock:
-            if index<0 or index>=len(state['raw']):return None
-            f=state['raw'][index];client=list(state['jpeg'])
-        from PIL import Image,ImageOps
-        source=Path(f['path'])
         if source.suffix.lower() in JPEG_EXT:
             with Image.open(source) as im:
-                im=ImageOps.exif_transpose(im);im.thumbnail((350,260));buf=io.BytesIO();im.convert('RGB').save(buf,'JPEG',quality=80);return buf.getvalue()
-        candidates=[source.with_suffix(x) for x in ('.jpg','.JPG','.jpeg','.JPEG')]
-        candidates += [Path(x['path']) for x in client if x['stem']==f['stem']]
-        for p in candidates:
-            if p.is_file():
-                with Image.open(p) as im:
-                    im=ImageOps.exif_transpose(im);im.thumbnail((350,260));buf=io.BytesIO();im.convert('RGB').save(buf,format='JPEG',quality=78);return buf.getvalue()
-        try:
-            import rawpy
-            with rawpy.imread(str(source)) as r:
-                try:thumb=r.extract_thumb()
-                except Exception:return None
-                if thumb.format==rawpy.ThumbFormat.JPEG:
+                return jpeg_bytes(im)
+        candidates = [source.with_suffix(ext) for ext in ('.jpg', '.JPG', '.jpeg', '.JPEG')]
+        candidates.extend(Path(x['path']) for x in client if x['stem'] == f['stem'])
+        for candidate in candidates:
+            if candidate.is_file():
+                try:
+                    with Image.open(candidate) as im:
+                        return jpeg_bytes(im)
+                except Exception:
+                    logging.exception('JPEG sidecar failed: %s', candidate)
+        import rawpy
+        with rawpy.imread(str(source)) as raw:
+            try:
+                thumb = raw.extract_thumb()
+                if thumb.format == rawpy.ThumbFormat.JPEG:
                     with Image.open(io.BytesIO(thumb.data)) as im:
-                        im.thumbnail((350,260));b=io.BytesIO();im.convert('RGB').save(b,'JPEG',quality=75);return b.getvalue()
-                else:
-                    im=Image.fromarray(thumb.data);im.thumbnail((350,260));b=io.BytesIO();im.convert('RGB').save(b,'JPEG',quality=75);return b.getvalue()
-        except Exception:return None
-    except Exception:return None
+                        return jpeg_bytes(im)
+                return jpeg_bytes(Image.fromarray(thumb.data))
+            except Exception:
+                logging.exception('Embedded RAW thumbnail failed: %s; attempting decode', source)
+                rgb = raw.postprocess(use_camera_wb=True, half_size=True,
+                                      no_auto_bright=True, output_bps=8)
+                return jpeg_bytes(Image.fromarray(rgb))
+    except Exception:
+        logging.exception('RAW thumbnail failed: %s', source)
+        return None
 
 
 def main():
+    import logging
+    logging.basicConfig(filename=str(Path.home()/"Rocky_RAW_JPG_thumbnail_errors.log"), level=logging.ERROR, format="%(asctime)s %(message)s")
     """Native desktop window using pywebview; Tk dialogs run on their own UI thread."""
     import tkinter as tk
     from tkinter import filedialog
